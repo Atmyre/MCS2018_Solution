@@ -6,6 +6,7 @@ import os
 import subprocess
 from tqdm import tqdm
 import argparse
+import zipfile
 
 IMGS_URL = 'http://mcs2018-competition.visionlabs.ru/imgs.zip'
 STUDENT_MODEL_IMGS_URL = 'http://mcs2018-competition.visionlabs.ru/student_model_imgs.zip'
@@ -63,7 +64,7 @@ def main(args):
 
 	if args.student_model_imgs:
 		print ('==> Student model images downloading')
-		downloader(STUDENT_MODEL_IMGS, args.root)
+		downloader(STUDENT_MODEL_IMGS_URL, args.root)
 		print ('==> Student model images downloaded')
 		ipfile_path = os.path.join(args.root, 'student_model_imgs.zip')
 		dir_path = os.path.join(args.root, 'student_model_imgs')

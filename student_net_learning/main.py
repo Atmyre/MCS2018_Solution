@@ -112,6 +112,8 @@ def train(epoch):
     total = 0
 
     for batch_idx, (inputs, targets) in enumerate(trainloader):
+        if batch_idx > 5000 // 32:
+            return
         inputs, targets = inputs, targets.squeeze()
         adjust_learning_rate(optimizer, epoch, args)
         if args.cuda:
@@ -311,6 +313,11 @@ def main():
 
     try:
         for epoch in range(start_epoch, args.epochs):
+            trainloader = torch.utils.data.DataLoader(trainset, 
+                                              batch_size=args.batch_size, 
+                                              shuffle=True, 
+                                              num_workers=8, 
+                                              pin_memory=True)
             train(epoch)
             validation(epoch)
         print ('==> Best loss: {0:.5f}'.format(best_loss))

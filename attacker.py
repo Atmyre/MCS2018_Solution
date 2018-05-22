@@ -1,6 +1,7 @@
 '''
 FGSM attack on student model
 '''
+import MCS2018_CPU as MCS2018
 import os
 import time
 import argparse
@@ -16,6 +17,7 @@ import torchvision.transforms as transforms
 from tqdm import tqdm
 from PIL import Image
 from skimage.measure import compare_ssim
+
 
 from student_net_learning.models import *
 
@@ -53,6 +55,10 @@ parser.add_argument('--checkpoint_path',
 parser.add_argument('--cuda',
                     action='store_true', 
                     help='use CUDA')
+parser.add_argument('--eps', 
+                    type=str, 
+                    default='1e-2',
+                    help='eps for image noise')
 
 args = parser.parse_args()
 
@@ -103,6 +109,7 @@ class FGSM_Attacker():
                                       ])
         self.img2tensor = img2tensor
         self.args = args
+        print(self.eps)
         self.loss = nn.MSELoss()
 
     def tensor2img(self, tensor, on_cuda=True):
@@ -147,9 +154,11 @@ class FGSM_Attacker():
             img = Image.open(os.path.join(self.args.root, img_name))
             original_img = self.cropping(img)
             attacked_img = original_img
-            tensor = self.transform(img)
-            input_var = Variable(tensor.unsqueeze(0).cuda(async=True),
-                                 requires_grad=True)
+            tensor = self.transform(img).unsqueeze(0)
+            if self.args.cuda:
+                tensor = tensor.cuda(async=True)
+            input_var = Variable(tensor,
+                                requires_grad=True)
             #print ('TEST: start iterations')
             #tick = time.time()
             for iter_number in tqdm(range(self.max_iter)):
@@ -159,8 +168,11 @@ class FGSM_Attacker():
                     adv_noise = adv_noise.cuda(async=True)
 
                 for target_descriptor in target_descriptors:
-                    target_out = Variable(torch.from_numpy(target_descriptor)\
-                                          .unsqueeze(0).cuda(async=True),
+                    target_out = torch.from_numpy(target_descriptor)\
+                                          .unsqueeze(0)
+                    if self.args.cuda:
+                        target_out = target_out.cuda(async=True)
+                    target_out = Variable(target_out,
                                  requires_grad=False)
 
                     input_var.grad = None
@@ -189,10 +201,12 @@ class FGSM_Attacker():
                 os.makedirs(self.args.save_root)
             attacked_img.save(os.path.join(self.args.save_root, img_name.replace('.jpg', '.png')))
 
+
 def main():
     #print ('TEST: start')
     model = get_model(args.model_name, args.checkpoint_path)
     #print ('TEST: model on cpu')
+    #net = MCS2018.Predictor(gpu_id)
     if args.cuda:
         model = model.cuda()
     #print ('TEST: model loaded')  
@@ -210,7 +224,7 @@ def main():
 
 
     attacker = FGSM_Attacker(model,
-                        eps=1e-2,
+                        eps=float(args.eps),
                         ssim_thr=SSIM_THR,
                         transform=transform,
                         img2tensor=img2tensor,
