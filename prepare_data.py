@@ -4,7 +4,7 @@ Prepare data for student model learning
 
 import os
 import argparse
-
+import MCS2018
 import numpy as np
 import pandas as pd
 from PIL import Image
@@ -12,7 +12,6 @@ from tqdm import tqdm
 from torchvision import transforms
 import glob
 
-import MCS2018_CPU
 
 MEAN = [0.485, 0.456, 0.406]
 STD = [0.229, 0.224, 0.225]
@@ -57,7 +56,7 @@ def chunks(arr, chunk_size):
 '''
 
 def main(args):
-    net = MCS2018_CPU.Predictor(args.gpu_id)
+    net = MCS2018.Predictor(args.gpu_id)
 
     #img list is needed for descriptors order
     img_list = glob.glob(os.path.join(args.root, '*.jpg'))

@@ -112,7 +112,7 @@ def train(epoch):
     total = 0
 
     for batch_idx, (inputs, targets) in enumerate(trainloader):
-        if batch_idx > 5000 // 32:
+        if batch_idx > 10000 // 32:
             return
         inputs, targets = inputs, targets.squeeze()
         adjust_learning_rate(optimizer, epoch, args)
@@ -133,12 +133,12 @@ def train(epoch):
         total += targets.size(0)
 
         log_file.write('train,{epoch},'\
-                       '{batch},{loss:.3f}\n'.format(epoch=epoch, 
+                       '{batch},{loss:.7f}\n'.format(epoch=epoch, 
                                                      batch=batch_idx,
                                                      loss=curr_batch_loss))
         progress_bar(batch_idx, 
-                     len(trainloader),
-                     'Loss: {l:.3f}'.format(l = train_loss/(batch_idx+1)))
+                     10000 // 32 + 1,
+                     'Loss: {l:.7f}'.format(l = train_loss/(batch_idx+1)))
 
 def validation(epoch):
     
@@ -170,7 +170,7 @@ def validation(epoch):
                                                      loss=curr_batch_loss))
         progress_bar(batch_idx, 
                      len(valloader), 
-                     'Loss: {l:.3f}'.format(l = val_loss/(batch_idx+1)))
+                     'Loss: {l:.7f}'.format(l = val_loss/(batch_idx+1)))
     val_loss = val_loss/(batch_idx+1)
     if val_loss < best_loss:
         print('Saving..')
@@ -261,6 +261,10 @@ def main():
         net = DenseNet121()
     elif args.model_name == 'VGG11':
         net = VGG('VGG11')
+    elif args.model_name == 'ResNet152':
+        net = ResNet152()
+    elif args/model_name == 'ResNet101':
+        net = ResNet101()
 
     print('==> Building model..')
 
@@ -268,7 +272,7 @@ def main():
         # Load checkpoint
         print('==> Resuming from checkpoint..')
         assert os.path.isdir('checkpoint'), 'Error: no checkpoint directory found!'
-        checkpoint = torch.load('./checkpoint/{0}/best_model_ckpt.t7'.format(args.name))
+        checkpoint = torch.load('./checkpoint/{0}/best_model_chkpt.t7'.format(args.name))
         net.load_state_dict(checkpoint['net'])
         best_loss = checkpoint['loss']
         start_epoch = checkpoint['epoch'] + 1

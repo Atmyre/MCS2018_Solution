@@ -57,7 +57,7 @@ def main(args):
 		if not os.path.isdir(dir_path):
 			os.makedirs(dir_path)
 		
-		with zipfile.ZipFile(file_path,'r') as myzip:
+		with zipfile.ZipFile(zipfile_path,'r') as myzip:
 			myzip.extractall(path=dir_path)
 
 		print ('==> Main imgs extracted')
@@ -72,7 +72,7 @@ def main(args):
 		if not os.path.isdir(dir_path):
 			os.makedirs(dir_path)
 		
-		with zipfile.ZipFile(file_path,'r') as myzip:
+		with zipfile.ZipFile(zipfile_path,'r') as myzip:
 			myzip.extractall(path=dir_path)
 
 		print ('==> Student model images extracted')
