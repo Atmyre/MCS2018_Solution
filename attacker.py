@@ -108,7 +108,7 @@ def get_model(model_name, checkpoint_path):
         net = VGG('VGG11')
     elif model_name == "xception":
         net = xception(num_classes=512, pretrained=False)
-    checkpoint = torch.load(checkpoint_path)
+    checkpoint = torch.load(checkpoint_path, map_location='cpu')
     net.load_state_dict(checkpoint['net'])
     return net
 
@@ -372,7 +372,7 @@ class OnePixelAttacker(Attacker):
 
         for img_name in attack_pairs['source']:
             #img is attacked
-            if os.path.isfile(os.path.join(self.args.save_root, img_name if self.mode=="begin" else img_name.replace('.jpg', '.png'))):
+            if os.path.isfile(os.path.join(self.args.save_root, img_name.replace('.jpg', '.png'))):
                 continue
 
             # 1. read image and convert to torch.autograd.Variable
@@ -418,24 +418,29 @@ class OnePixelAttacker(Attacker):
                 os.makedirs(self.args.save_root)
             if new_loss < initial_loss and ssim > 0.95:
                 attack_image = Image.fromarray(attack_image)
-                attack_image.save(os.path.join(self.args.save_root, img_name.replace('.jpg', '.png')))
+                attack_image.save(os.path.join(self.args.save_root, 
+                    img_name if self.mode=="begin" else img_name.replace('.jpg', '.png')))
             else:
-                img.save(os.path.join(self.args.save_root, img_name.replace('.jpg', '.png')))
+                img.save(os.path.join(self.args.save_root, 
+                    img_name if self.mode=="begin" else img_name.replace('.jpg', '.png')))
 
 
+import pytorch_ssim
+                    
 class CW_Attacker(Attacker):
     def __init__(self, model, ssim_thr, transform, img2tensor, args, mode='begin',
-                    lr=0.01, max_iter=3):
+                    lr=0.02, max_iter=3):
         super().__init__(model, ssim_thr, transform, img2tensor, args, mode)
         self.mode = mode
         self.initial_lr = lr
 
-        self.upper_bound = 1e10
+        self.upper_bound = 20
         self.lower_bound = 0
-        self.initial_scale_const = 7e4
+        self.initial_scale_const = self.upper_bound / 2.#5e4
 
         self.max_search_steps = 20
-        self.max_iter_steps = 30
+        self.max_iter_steps = 200
+        self.loss_2 = pytorch_ssim.SSIM(window_size=7)
 
     """
     def torch_arctanh(self, x, eps=1e-6):
@@ -452,9 +457,22 @@ class CW_Attacker(Attacker):
         return x
 
     def l2_dist(self, x, y, keepdim=True):
-        d = (x - y)**2
-        return self.reduce_sum(d, keepdim=keepdim)
+        d = ((x - y)**2)
+        return self.reduce_sum(d, keepdim=keepdim).sqrt()
 
+    def get_loss(self, input_var, input_adv, target_vars):
+        desc_model_changed_image = self.model(input_adv)
+        
+        loss_1 =  self.l2_dist(desc_model_changed_image, target_vars[0], keepdim=False)
+        for i, target in enumerate(target_vars[1:]):
+            loss_1 = loss_1 + self.l2_dist(desc_model_changed_image, target, keepdim=False)
+        loss_1 = loss_1 / len(target_vars)
+        
+        loss_2 = self.loss_2(input_adv, input_var)
+        
+        loss =  self.scale_const * loss_1 - loss_2
+        
+        return loss, loss_1, loss_2
 
     def attack(self, attack_pairs):
         '''
@@ -466,18 +484,18 @@ class CW_Attacker(Attacker):
         target_descriptors = self.read_target_descriptors(target_img_names)
 
         for img_name in attack_pairs['source']:
+            print('=====================================================')
             #img is attacked
-            if os.path.isfile(os.path.join(self.args.save_root, img_name if self.mode=="begin" else img_name.replace('.jpg', '.png'))):
-                continue
+            #if os.path.isfile(os.path.join(self.args.save_root, img_name.replace('.jpg', '.png'))):
+            #    continue
 
             # 1. read image and convert to torch.autograd.Variable
-            original_img = Image.open(os.path.join(self.args.root, 
-                                    img_name if self.mode=="begin" else img_name.replace('.jpg', '.png')))
+            original_img = Image.open(os.path.join(self.args.root, img_name if self.mode=="begin" else img_name.replace('.jpg', '.png')))
+            
             tensor = self.transform(original_img).unsqueeze(0)
             if self.args.cuda:
                 tensor = tensor.cuda(async=True)
-            input_var = Variable(tensor,
-                                requires_grad=True)
+            input_var = Variable(tensor, requires_grad=True)
             # image to compare ssim to
             img_before = self.cropping(original_img)
             if self.mode == "continue":
@@ -485,15 +503,15 @@ class CW_Attacker(Attacker):
                 img_before = self.cropping(img_before)
     
             # 2. get initial loss for image before attacking
+            self.scale_const = self.initial_scale_const
+            
             target_vars = self.get_target_descriptors_vars(target_descriptors)
-            # desc_from_orig_image_var = self.get_net_desc_var(tensor)
-            # initial_loss = self.get_mean_loss(desc_from_orig_image_var, target_vars)
-            desc_from_orig_image = self.net.submit(tensor.cpu().numpy()).squeeze()
-            initial_loss = []
-            for target_descriptor in target_descriptors:
-                initial_loss.append(euclid_dist(desc_from_orig_image, target_descriptor, axis=0))
-            initial_loss = np.mean(initial_loss)
-            #print("INIT LOSS:", initial_loss)
+
+            loss, loss_1, loss_2 = self.get_loss(input_var, input_var, target_vars)
+
+            best_loss = loss_1.data[0]
+            print("INIT LOSS:", best_loss, loss_1.data[0], loss_2.data[0])
+
             # 3. set variable for adding to image
             modifier = torch.zeros(input_var.size()).float()
             modifier = torch.normal(means=modifier, std=0.0001)
@@ -502,39 +520,29 @@ class CW_Attacker(Attacker):
             modifier_var = Variable(modifier, requires_grad=True)
 
             # 4. run attack
-            best_loss = initial_loss
-            self.scale_const = self.initial_scale_const
-            self.best_img = original_img
+
+            
+            self.best_img = img_before
             for search_step in range(self.max_search_steps):
                 # constants
-                #print("Search step:", search_step, "Constant:", self.scale_const)
+                print("Search step:", search_step, "Constant:", self.scale_const)
                 self.i = 0
-                best_img = None
-                self.changed = False
+                self.j = 0
+
+                ssim_reached = False
 
                 self.lr = self.initial_lr
                 optimizer = optim.Adam([modifier_var], lr=self.initial_lr)
-                prev_modifier_var = modifier_var
+                #prev_modifier_var = modifier_var.detach()
 
+                best_step_loss = 0
                 for step in range(self.max_iter_steps):
                     # 4.1 change image -- add modifier
                     input_adv = modifier_var + input_var
 
-                    # 4.2 compute full loss 
-                    desc_model_changed_image = self.model(input_adv)
+                    loss, loss_1, loss_2 = self.get_loss(input_var, input_adv, target_vars)
                     
-                    # да, я не умею по-нормальному это делать =\
-                    loss_main = None
-                    for i, target in enumerate(target_vars):
-                        if i == 0:
-                            loss_main = self.loss(desc_model_changed_image, target) / 5.
-                        else:
-                            loss_main += self.loss(desc_model_changed_image, target) / 5.
-                    # additional loss -- l2 dist between orig and changed image
-                    dist = self.l2_dist(input_adv, input_var, keepdim=False) #pytorch_ssim.ssim(input_adv, input_var)
-                    # full loss
-                    loss = self.scale_const * loss_main + dist 
-
+                    #print(dist, loss_main)
                     # 4.3 run optimizer
                     optimizer.zero_grad()
                     loss.backward()
@@ -546,40 +554,61 @@ class CW_Attacker(Attacker):
                                         np.array(img_before),  
                                         multichannel=True)
                     #print("ssim", ssim)
-                    if ssim <= 0.95:
-                        break
+                    if ssim <= 0.955:
+                        ssim_reached = True
+                    else:
+                        ssim_reached = False
+                        #modifier_var = prev_modifier_var
+                        #modifier_var.requires_grad = True
+                        #optimizer = optim.Adam([modifier_var], lr=self.lr)
+                        #break
 
                     # 4.5 calculate new loss
                     #desc_net_changed_image = self.get_net_desc_var(input_adv)
                     new_out = self.net.submit(input_adv.data.cpu().numpy()).squeeze()
                     new_net_loss = []
                     for target_descriptor in target_descriptors:
-                        new_net_loss.append(euclid_dist(new_out, target_descriptor, axis=0))
+                       new_net_loss.append(euclid_dist(new_out, target_descriptor, axis=0))
                     new_net_loss = np.mean(new_net_loss)
-                    #print("NEW LOSS", new_net_loss, "ssim:", ssim)
-                    if new_net_loss >= best_loss:
-                        self.i += 1
-                        self.lr /= 2
-                        modifier_var = prev_modifier_var
-                        # set optimizer again as we changed lr
-                        optimizer = optim.Adam([modifier_var], lr=self.lr)
-                        if self.i >= 5:
-                            self.i = 0
-                            break
-                    else:
-                        #print("NEW LOSS", new_net_loss, "ssim:", ssim)
-                        prev_modifier_var = modifier_var
+
+
+                    #print("NEW LOSS", new_net_loss)
+                    #iprint("NEW FAKE LOSS", loss_1.data[0], "ssim:", loss_2.data[0], ssim, 'sum', loss.data[0])
+                    if not (loss.data[0] > 0.9999 * best_step_loss) or step == 0:
                         self.i = 0
-                        best_loss = new_net_loss
+                        self.j = 0
+                        best_step_loss = loss.data[0]
+                    else:
+                        self.i += 1
+                        self.j += 1
+                        if self.i >= 2:
+                            self.lr /= 2
+                            self.i = 0
+                            optimizer = optim.Adam([modifier_var], lr=self.lr)
+                        
+                        if self.j >= 5: #early stop
+                            break
+                        #modifier_var = prev_modifier_var
+                        #modifier_var.requires_grad = True
+                        # set optimizer again as we changed lr
+                        #optimizer = optim.Adam([modifier_var], lr=self.lr)
+                        #if self.i >= 5:
+                        #    self.i = 0
+                        #    continue
+
+                    if new_net_loss < best_loss and ssim > 0.95:
                         self.best_img = out_img
-                        self.changed = True
+                        print("NEW LOSS", new_net_loss, "ssim", ssim)
+                        best_loss = new_net_loss
+                        print('SAVED')
+
 
                     #if loss_.data[0] > prev_loss * .9999:
                     #    break
                     #prev_loss = loss_.data[0]
 
                 # 5 binary search for self.scale_const
-                if not self.changed:
+                if not ssim_reached:
                     self.lower_bound = self.scale_const
                     self.scale_const = (self.lower_bound + self.upper_bound) / 2
                 else:
@@ -589,8 +618,7 @@ class CW_Attacker(Attacker):
             # 6 save image
             if not os.path.isdir(self.args.save_root):
                 os.makedirs(self.args.save_root)
-            attack_image = self.best_img
-            attack_image.save(os.path.join(self.args.save_root, img_name.replace('.jpg', '.png')))
+            self.best_img.save(os.path.join(self.args.save_root, img_name.replace('.jpg', '.png')))
             #print("OLOLO", orig_loss, best_loss)                      
 
  
