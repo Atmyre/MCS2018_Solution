@@ -146,7 +146,7 @@ class Attacker():
                                      dtype=np.float32)
 
         for idx, img_name in enumerate(target_img_names):
-            img_name = os.path.join(self.args.root, img_name)
+            img_name = os.path.join("data/imgs", img_name)
             img = Image.open(img_name)
             tensor = self.transform(img).unsqueeze(0)
             if self.args.cuda:
@@ -197,6 +197,12 @@ class Attacker():
             losses.append(self.loss(input_var, target).data[0])
         return np.array(losses).mean()
 
+    def get_mean_euclidean_loss(self, input_vec, target_vecs):
+        losses = []
+        for target in target_vecs:
+            losses.append(euclid_dist(input_vec, target))
+        return np.array(losses).mean()
+
     def get_net_desc_var(self, input_tensor):
         """
         get torch.autograd.Variable of self.net output
@@ -228,7 +234,7 @@ class FGSM_Attacker(Attacker):
     '''
 
     def __init__(self, model, ssim_thr, transform, img2tensor, args, mode='begin',
-                    eps=0.01, max_iter=10000):
+                    eps=1e-2, max_iter=10000):
         super().__init__(model, ssim_thr, transform, img2tensor, args, mode)
         self.initial_eps = eps
         self.max_iter = max_iter
@@ -262,9 +268,15 @@ class FGSM_Attacker(Attacker):
     
             # 2. get initial loss for image before attacking
             target_vars = self.get_target_descriptors_vars(target_descriptors)
-            desc_from_orig_image_var = self.get_net_desc_var(tensor)
-            initial_loss = self.get_mean_loss(desc_from_orig_image_var, target_vars)
-
+            #desc_from_orig_image_var = self.get_net_desc_var(tensor)
+            #initial_loss = self.get_mean_loss(desc_from_orig_image_var, target_vars)
+            desc_from_orig_image = self.net.submit(tensor.cpu().numpy()).squeeze()
+            net_loss = []
+            for target_descriptor in target_descriptors:
+                net_loss.append(euclid_dist(desc_from_orig_image, target_descriptor, axis=0))
+            initial_loss = np.mean(net_loss)
+            print("==============")
+            print("INITIAL LOSS:", initial_loss)
             # image to compare ssim with
             original_img = self.cropping(img)
             # 3. attacking
@@ -285,13 +297,28 @@ class FGSM_Attacker(Attacker):
                     calc_loss = self.loss(out, target)
                     calc_loss.backward()
                     # 3.2 calculate noise
-                    noise = input_var.grad / input_var.grad.data.view(-1).std()
-                    noise = torch.clamp(noise, min=-2., max=2.)
-                    noise = self.eps * noise.data\
-                                       .squeeze()
+                    #noise = input_var.grad / input_var.grad.data.view(-1).std()
+                    noise = input_var.grad.data.squeeze()
+                    #noise = torch.clamp(noise, min=-2., max=2.).pow(2)
+
+                    #pos_noise_mask = (noise>0).float()
+                    #neg_noise_mask = -(noise<0).float()
+                    #noise = torch.clamp(torch.abs(noise), min = 0, max=6)
+                    #noise = noise * (pos_noise_mask + neg_noise_mask)
+                    #noise = torch.clamp(noise, min=-5., max=5.)#.pow(2)
+                    #noise = self.eps * 1 * noise.data\
+                    #                   .squeeze()
                     # 3.3 add noise
                     adv_noise = adv_noise + noise
 
+
+                adv_noise = adv_noise / adv_noise.std()
+                #adv_noise = self.eps * torch.clamp(adv_noise, min=-4., max=4.)
+                pos_noise_mask = (adv_noise>0).float()
+                neg_noise_mask = -(adv_noise<0).float()
+                adv_noise_ = torch.clamp(adv_noise, min = -5, max=5)
+                #adv_noise = adv_noise_ * (pos_noise_mask + neg_noise_mask) + 2*torch.clamp(adv_noise, min=-1, max=1)
+                adv_noise = self.eps * adv_noise
                 # save in case we made worse
                 old_input_var_data = input_var.data
                 # change image data
@@ -299,10 +326,14 @@ class FGSM_Attacker(Attacker):
                 changed_img = tensor2img(input_var.data.cpu().squeeze())
 
                 # 3.4 get descriptors from bb for new image data
-                desc_from_changed_image_var = self.get_net_desc_var(input_var.data)
+                #desc_from_changed_image_var = self.get_net_desc_var(input_var.data)
                 # get loss for new image
-                new_loss = self.get_mean_loss(desc_from_orig_image_var, target_vars)
-
+                #new_loss = self.get_mean_loss(desc_from_orig_image_var, target_vars)
+                new_out = self.net.submit(input_var.data.cpu().numpy()).squeeze()
+                new_net_loss = []
+                for target_descriptor in target_descriptors:
+                    new_net_loss.append(euclid_dist(new_out, target_descriptor, axis=0))
+                new_loss = np.mean(new_net_loss)
                 # 3.5 SSIM checking
                 ssim = compare_ssim(np.array(original_img),
                                     np.array(changed_img),  
@@ -310,13 +341,16 @@ class FGSM_Attacker(Attacker):
                 # 3.6 check conditions
                 if ssim < self.ssim_thr or new_loss > initial_loss:
                     # drop eps
+                    print("ololo", self.eps, ssim, new_loss)
                     self.eps = self.eps / self.eps_drop_rate
                     input_var.data = old_input_var_data
                     if self.eps < self.eps_stop_value:
                         break
+                        #self.eps = 0.01
                 else:
                     # making new image as baseline for next iteration
                     initial_loss = new_loss
+                    print("NEW LOSS:", new_loss, "ssim", ssim)
                     attacked_img = changed_img
 
             # 4. save
@@ -325,9 +359,10 @@ class FGSM_Attacker(Attacker):
             attacked_img.save(os.path.join(self.args.save_root, img_name.replace('.jpg', '.png')))
 
 
+
 class OnePixelAttacker(Attacker):
     def __init__(self, model, ssim_thr, transform, img2tensor, args, mode='begin', 
-                    popmul_const=100, max_iter=3):
+                    popmul_const=200, max_iter=3):
         super().__init__(model, ssim_thr, transform, img2tensor, args, mode)
         self.mode = mode
         self.max_iter = max_iter
@@ -349,7 +384,7 @@ class OnePixelAttacker(Attacker):
             img[x_pos, y_pos] = rgb
         return img
 
-    def objective_function(self, xs, image, targets):
+    def objective_function(self, xs, image, img_before, targets):
         """
         objective function for scipy.optimize.differential_evolution
         args:
@@ -359,10 +394,19 @@ class OnePixelAttacker(Attacker):
         """
         changed_img = self.perturb_image(xs, np.array(image))
         
-        tensor = self.img2tensor(img).unsqueeze(0)
-        changed_img_net_desc_var = self.get_net_desc_var(tensor)
-        loss = self.get_mean_loss(changed_img_net_desc_var, targets)
-
+        tensor = self.img2tensor(changed_img).unsqueeze(0)
+        #changed_img_net_desc_var = self.get_net_desc_var(tensor)
+        #loss = self.get_mean_loss(changed_img_net_desc_var, targets)
+        desc_from_orig_image = self.net.submit(tensor.cpu().numpy()).squeeze()
+        net_loss = []
+        for target_descriptor in targets:
+            net_loss.append(euclid_dist(desc_from_orig_image, target_descriptor, axis=0))
+        loss = np.mean(net_loss)
+        ssim = compare_ssim(np.array(img_before),
+                            np.array(changed_img),
+                            multichannel=True) 
+        if ssim < 0.95:
+            loss = 1e6
         return loss
 
 
@@ -378,7 +422,11 @@ class OnePixelAttacker(Attacker):
             # 1. read image and convert to torch.autograd.Variable
             original_img = Image.open(os.path.join(self.args.root, 
                                     img_name if self.mode=="begin" else img_name.replace('.jpg', '.png')))
-            tensor = self.transform(original_img).unsqueeze(0)
+            if self.mode == "continue":
+                tensor = self.img2tensor(original_img).unsqueeze(0)
+            else:
+                original_img = self.cropping(original_img)
+                tensor = self.transform(original_img).unsqueeze(0)
             if self.args.cuda:
                 tensor = tensor.cuda(async=True)
             input_var = Variable(tensor,
@@ -391,45 +439,58 @@ class OnePixelAttacker(Attacker):
     
             # 2. get initial loss for image before attacking
             target_vars = self.get_target_descriptors_vars(target_descriptors)
-            desc_from_orig_image_var = self.get_net_desc_var(tensor)
-            initial_loss = self.get_mean_loss(desc_from_orig_image_var, target_vars)
+            #desc_from_orig_image_var = self.get_net_desc_var(tensor)
+            #initial_loss = self.get_mean_loss(desc_from_orig_image_var, target_vars)
+            desc_from_orig_image = self.net.submit(tensor.cpu().numpy()).squeeze()
+            net_loss = []
+            for target_descriptor in target_descriptors:
+                net_loss.append(euclid_dist(desc_from_orig_image, target_descriptor, axis=0))
+            initial_loss = np.mean(net_loss)
 
             # 3. run differential_evolution
             bounds = [(0,112), (0,112), (0,256), (0,256), (0,256)] * 1
             popmul = max(1, self.popmul_const // len(bounds))
-            predict_fn = lambda xs: self.objective_function(xs, original_img, target_vars)
+            predict_fn = lambda xs: self.objective_function(xs, original_img, img_before, target_descriptors)
             attack_result = differential_evolution(
-                predict_fn, bounds, maxiter=self.max_iter, popsize=popmul,
-                recombination=1, atol=-1, polish=False, disp=False)
+                predict_fn, bounds, maxiter=20, popsize=400,
+                recombination=1, atol=-1, polish=False, seed=42, disp=True)
             attack_image = self.perturb_image(attack_result.x, np.array(original_img))
-
+            
             # 4. ssim checking
-            ssim = compare_ssim(np.array(img_before),
-                                np.array(attack_image),  
-                                multichannel=True)
-
+            #ssim = compare_ssim(np.array(img_before),
+            #                    np.array(attack_image),  
+            #                    multichannel=True)
             # 5. get descriptors from bb for new image data
-            desc_from_changed_image_var = self.get_net_desc_var(self.img2tensor(attack_image).unsqueeze(0))
+            #desc_from_changed_image_var = self.get_net_desc_var(self.img2tensor(attack_image).unsqueeze(0))
             # get loss for new image
-            new_loss = self.get_mean_loss(desc_from_orig_image_var, target_vars)
-
+            new_out = self.net.submit(self.img2tensor(attack_image).unsqueeze(0).cpu().numpy()).squeeze()
+            new_net_loss = []
+            for target_descriptor in target_descriptors:
+                new_net_loss.append(euclid_dist(new_out, target_descriptor, axis=0))
+            new_loss = np.mean(new_net_loss)
+            #new_loss = self.get_mean_loss(desc_from_changed_image_var, target_vars)
+            
             # 6. save
             if not os.path.isdir(self.args.save_root):
                 os.makedirs(self.args.save_root)
-            if new_loss < initial_loss and ssim > 0.95:
+            if new_loss < initial_loss: #and ssim > 0.95:
                 attack_image = Image.fromarray(attack_image)
                 attack_image.save(os.path.join(self.args.save_root, 
                     img_name if self.mode=="begin" else img_name.replace('.jpg', '.png')))
+                LOSS_ESTIMATE.append(new_loss)
             else:
-                img.save(os.path.join(self.args.save_root, 
+                original_img.save(os.path.join(self.args.save_root, 
                     img_name if self.mode=="begin" else img_name.replace('.jpg', '.png')))
+                LOSS_ESTIMATE.append(initial_loss)
+
+            print("Loss estimate:", np.mean(LOSS_ESTIMATE))
 
 
 import pytorch_ssim
                     
 class CW_Attacker(Attacker):
     def __init__(self, model, ssim_thr, transform, img2tensor, args, mode='begin',
-                    lr=0.02, max_iter=3):
+                    lr=0.005, max_iter=3):
         super().__init__(model, ssim_thr, transform, img2tensor, args, mode)
         self.mode = mode
         self.initial_lr = lr
@@ -510,7 +571,8 @@ class CW_Attacker(Attacker):
             loss, loss_1, loss_2 = self.get_loss(input_var, input_var, target_vars)
 
             best_loss = loss_1.data[0]
-            print("INIT LOSS:", best_loss, loss_1.data[0], loss_2.data[0])
+            initial_loss = loss_1.data[0]
+            #print("INIT LOSS:", best_loss, loss_1.data[0], loss_2.data[0])
 
             # 3. set variable for adding to image
             modifier = torch.zeros(input_var.size()).float()
@@ -525,7 +587,7 @@ class CW_Attacker(Attacker):
             self.best_img = img_before
             for search_step in range(self.max_search_steps):
                 # constants
-                print("Search step:", search_step, "Constant:", self.scale_const)
+                #print("Search step:", search_step, "Constant:", self.scale_const)
                 self.i = 0
                 self.j = 0
 
@@ -575,6 +637,8 @@ class CW_Attacker(Attacker):
                     #print("NEW LOSS", new_net_loss)
                     #iprint("NEW FAKE LOSS", loss_1.data[0], "ssim:", loss_2.data[0], ssim, 'sum', loss.data[0])
                     if not (loss.data[0] > 0.9999 * best_step_loss) or step == 0:
+                        #if new_net_loss < best_loss or step == 0:
+                        #best_loss = new_net_loss
                         self.i = 0
                         self.j = 0
                         best_step_loss = loss.data[0]
@@ -596,11 +660,11 @@ class CW_Attacker(Attacker):
                         #    self.i = 0
                         #    continue
 
-                    if new_net_loss < best_loss and ssim > 0.95:
+                    if new_net_loss <= best_loss and ssim > 0.95:
                         self.best_img = out_img
-                        print("NEW LOSS", new_net_loss, "ssim", ssim)
+                        #print("NEW LOSS", new_net_loss, "ssim", ssim)
                         best_loss = new_net_loss
-                        print('SAVED')
+                        #print('SAVED')
 
 
                     #if loss_.data[0] > prev_loss * .9999:
@@ -619,7 +683,7 @@ class CW_Attacker(Attacker):
             if not os.path.isdir(self.args.save_root):
                 os.makedirs(self.args.save_root)
             self.best_img.save(os.path.join(self.args.save_root, img_name.replace('.jpg', '.png')))
-            #print("OLOLO", orig_loss, best_loss)                      
+            print("OLOLO", initial_loss, best_loss)                      
 
  
 def main():
