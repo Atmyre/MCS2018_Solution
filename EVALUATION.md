@@ -1,4 +1,4 @@
-# Build docker image
+# 1. Build docker image
 
 To build the docker image from the Dockerfile located in `dockerfile` please do:
 ```
@@ -37,15 +37,15 @@ To find out the container ID run
  docker container ls
 ```
 
-# Train AV's CNNs
+# 2. Train AV's CNNs
 
 
 
-# Train other CNNs
+# 3. Train other CNNs
 
 
 
-# Run inference attack
+# 4. Run inference attack
 
 run script
 ```
