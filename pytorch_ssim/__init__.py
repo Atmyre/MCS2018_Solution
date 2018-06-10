@@ -1,3 +1,9 @@
+"""
+taken from https://github.com/Po-Hsun-Su/pytorch-ssim
+
+used only for C&W attack
+"""
+
 import torch
 import torch.nn.functional as F
 from torch.autograd import Variable
