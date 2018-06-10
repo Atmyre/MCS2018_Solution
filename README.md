@@ -1,12 +1,16 @@
 # 2nd place solution for MCS2018: [Adversarial Attacks on Black-box Face Recognition challenge](https://competitions.codalab.org/competitions/19090)
 
-This code is based on [baseline code](https://github.com/AlexanderParkin/MCS2018.Baseline) provided by organizers.
+This code is based on [baseline code](https://github.com/AlexanderParkin/MCS2018.Baseline) provided by organizers.    
 Solution authors: [@atmyre](https://github.com/atmyre), [@mortido](https://github.com/mortido), [@snakers4](https://github.com/snakers4), [@stalkermustang](https://github.com/stalkermustang)
 
-Our solution [presentation](https://drive.google.com/file/d/1P-4AdCqw81nOK79vU_m7IsCVzogdeSNq/view) at MCS2018
-Top-3 winners' [presentation](https://drive.google.com/file/d/1aIUSVFBHYabBRdolBRR-1RKhTMg-v-3f/view)
-Presentations at MCS2018 summit: [video](https://youtu.be/cSrc1gCOsTw?t=2h25m40s)
+### More info:
+Our solution [presentation](https://drive.google.com/file/d/1P-4AdCqw81nOK79vU_m7IsCVzogdeSNq/view) at MCS2018  
+Top-3 winners' [presentation](https://drive.google.com/file/d/1aIUSVFBHYabBRdolBRR-1RKhTMg-v-3f/view)  
+Presentations at MCS2018 summit: [video](https://youtu.be/cSrc1gCOsTw?t=2h25m40s)  
 
+
+
+## Table of contents:
 <!--ts-->
    <!-- * [2nd place solution for MCS2018: <a href="https://competitions.codalab.org/competitions/19090" rel="nofollow">Adversarial Attacks on Black-box Face Recognition challenge</a>](#2nd-place-solution-for-mcs2018-adversarial-attacks-on-black-box-face-recognition-challenge) -->
    * [Solution overview](#solution-overview)
@@ -28,7 +32,7 @@ Presentations at MCS2018 summit: [video](https://youtu.be/cSrc1gCOsTw?t=2h25m40s
 <!--te-->
 
 # Solution overview
-This code trains different white boxes on data from the black box model, makes iterations of [FGSM attacks](https://arxiv.org/pdf/1412.6572.pdf) and genetic one-pixel attacks on the white boxes:
+This code trains different white boxes on data from the black box model, makes iterations of [FGSM attacks](https://arxiv.org/pdf/1412.6572.pdf) with heuristics and genetic one-pixel attacks on the white boxes:<br/>
 ![pipeline](pipeline.jpg)
 
 # How to reproduce
@@ -226,6 +230,7 @@ With the above setting on 2x1080Ti training takes:
 ![training_curves](av_cnns/training_curves.jpg)
 -->
 
+  
 # Train mortido's CNNs (optional)
 
 Provided original scripts log w/o alterations
