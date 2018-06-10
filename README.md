@@ -1,5 +1,7 @@
 # 2nd place solution for MCS2018: [Adversarial Attacks on Black-box Face Recognition challenge](https://competitions.codalab.org/competitions/19090)
 
+![attack_pandas](imgs/attack_pandas.png)
+
 This code is based on [baseline code](https://github.com/AlexanderParkin/MCS2018.Baseline) provided by organizers.    
 Solution authors: [@atmyre](https://github.com/atmyre), [@mortido](https://github.com/mortido), [@snakers4](https://github.com/snakers4), [@stalkermustang](https://github.com/stalkermustang)
 
@@ -33,7 +35,7 @@ Presentations at MCS2018 summit: [video](https://youtu.be/cSrc1gCOsTw?t=2h25m40s
 
 # Solution overview
 This code trains different white boxes on data from the black box model, makes iterations of [FGSM attacks](https://arxiv.org/pdf/1412.6572.pdf) with heuristics and genetic one-pixel attacks on the white boxes:<br/>
-![pipeline](pipeline.jpg)
+![pipeline](imgs/pipeline.jpg)
 
 # How to reproduce
 
