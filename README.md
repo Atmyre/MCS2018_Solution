@@ -9,6 +9,7 @@ Solution authors: [@atmyre](https://github.com/atmyre), [@mortido](https://githu
 Our solution [presentation](https://drive.google.com/file/d/1P-4AdCqw81nOK79vU_m7IsCVzogdeSNq/view) at MCS2018  
 Top-3 winners' [presentation](https://drive.google.com/file/d/1aIUSVFBHYabBRdolBRR-1RKhTMg-v-3f/view)  
 Presentations at MCS2018 summit: [video](https://youtu.be/cSrc1gCOsTw?t=2h25m40s)  
+Yandex ML Training 07.07.2018: [video](https://youtu.be/zNTRmIoPLns)
 
 
 
